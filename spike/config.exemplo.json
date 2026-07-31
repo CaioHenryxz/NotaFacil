@@ -1,0 +1,40 @@
+{
+  "ambiente": "homologacao",
+
+  "certificado": {
+    "caminho_pfx": "C:/certificados/prestador-teste.pfx",
+    "senha_env_var": "NFSE_CERT_SENHA"
+  },
+
+  "prestador": {
+    "documento": "00000000000000",
+    "inscricao_municipal": "000000",
+    "codigo_municipio": "3549904",
+    "opcao_simples_nacional": "3",
+    "regime_especial_tributacao": "0"
+  },
+
+  "tomador": {
+    "documento": "00000000000",
+    "nome": "Tomador de Teste — Spike Sprint 0",
+    "email": "tomador-teste@example.com"
+  },
+
+  "servico": {
+    "codigo_tributacao_nacional": "010101",
+    "codigo_tributacao_municipal": "0101010000",
+    "codigo_nbs": "107011900",
+    "descricao": "Servico de teste - spike Sprint 0 (emissor-nfse)",
+    "codigo_municipio_prestacao": "3549904",
+    "valor": "1.00",
+    "aliquota_iss": null,
+    "tipo_retencao_issqn": "1"
+  },
+
+  "numeracao": {
+    "serie": "1",
+    "numero_dps": "1"
+  },
+
+  "data_competencia": null
+}

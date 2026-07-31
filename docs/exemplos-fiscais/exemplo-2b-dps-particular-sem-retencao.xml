@@ -1,0 +1,50 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">
+  <infDPS Id="DPS354990421122233300018100001000000000000202">
+    <tpAmb>2</tpAmb>
+    <dhEmi>2026-07-23T16:38:10-03:00</dhEmi>
+    <verAplic>emissor-nfse-0.1</verAplic>
+    <serie>1</serie>
+    <nDPS>202</nDPS>
+    <dCompet>2026-08-10</dCompet>
+    <tpEmit>1</tpEmit>
+    <cLocEmi>3549904</cLocEmi>
+    <prest>
+      <CNPJ>11222333000181</CNPJ>
+      <IM>437791</IM>
+      <regTrib>
+        <opSimpNac>3</opSimpNac>
+        <regEspTrib>0</regEspTrib>
+      </regTrib>
+    </prest>
+    <toma>
+      <CPF>12345678901</CPF>
+      <xNome>Maria da Silva</xNome>
+    </toma>
+    <serv>
+      <locPrest>
+        <cLocPrestacao>3549904</cLocPrestacao>
+      </locPrest>
+      <cServ>
+        <cTribNac>040101</cTribNac>
+        <cTribMun>040</cTribMun>
+        <xDescServ>Consulta medica - clinica geral</xDescServ>
+        <cNBS>105011900</cNBS>
+      </cServ>
+    </serv>
+    <valores>
+      <vServPrest>
+        <vServ>300.00</vServ>
+      </vServPrest>
+      <trib>
+        <tribMun>
+          <tribISSQN>1</tribISSQN>
+          <tpRetISSQN>1</tpRetISSQN>
+        </tribMun>
+        <totTrib>
+          <indTotTrib>0</indTotTrib>
+        </totTrib>
+      </trib>
+    </valores>
+  </infDPS>
+</DPS>

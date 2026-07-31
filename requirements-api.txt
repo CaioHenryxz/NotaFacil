@@ -1,0 +1,12 @@
+# Dependência extra só da ponte HTTP local (app/api.py) que liga o
+# protótipo web (prototype/) ao backend de verdade. NÃO faz parte do app
+# desktop (esse continua descrito só por requirements.txt, com as
+# dependências fechadas da espec §7) — Flask não está nessa lista porque o
+# produto real (docs/spec-mvp.md) é "desktop burro, servidor quase
+# inexistente", sem servidor HTTP nenhum. Isso aqui é só uma ferramenta de
+# demonstração/venda.
+#
+# Instale por cima do requirements.txt já instalado:
+#   pip install -r requirements-api.txt
+
+Flask==3.1.3

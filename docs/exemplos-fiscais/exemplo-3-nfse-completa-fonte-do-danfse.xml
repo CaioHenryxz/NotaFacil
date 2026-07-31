@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse">
+  <infNFSe Id="NFS354990421122233300018100001000000000000001">
+    <id>35260711222333000181000053500000000123456781</id>
+    <nNFSe>123456781</nNFSe>
+    <cStat>100</cStat>
+    <dhProc>2026-07-23T14:05:00-03:00</dhProc>
+    <ambGer>Sistema Nacional NFS-e</ambGer>
+    <xLocPrestacao>São José dos Campos</xLocPrestacao>
+    <cTribMun>040</cTribMun>
+    <xTribMun>Medicina</xTribMun>
+    <xLocIncid>São José dos Campos</xLocIncid>
+    <emit>
+      <enderNac>
+        <xLocEmi>São José dos Campos</xLocEmi>
+      </enderNac>
+    </emit>
+    <valores>
+      <vBC>1000.00</vBC>
+      <pAliqAplic>2.00</pAliqAplic>
+      <vISSQN>20.00</vISSQN>
+      <vTotalRet>15.00</vTotalRet>
+      <vLiq>985.00</vLiq>
+    </valores>
+    <DPS>
+      <infDPS Id="DPS354990421122233300018100001000000000000001">
+        <tpAmb>2</tpAmb>
+        <dhEmi>2026-07-23T14:04:50-03:00</dhEmi>
+        <verAplic>emissor-nfse-0.1</verAplic>
+        <serie>1</serie>
+        <nDPS>1</nDPS>
+        <dCompet>2026-07-23</dCompet>
+        <tpEmit>1</tpEmit>
+        <cLocEmi>3549904</cLocEmi>
+        <prest>
+          <CNPJ>11222333000181</CNPJ>
+          <IM>437791</IM>
+          <fone>(12) 3921-0000</fone>
+          <xNome>Dr. João Cardoso</xNome>
+          <email>joao.cardoso@example.com</email>
+          <end>
+            <xLgr>Rua Sete de Setembro</xLgr>
+            <nro>123</nro>
+            <xBairro>Centro</xBairro>
+          </end>
+          <regTrib>
+            <opSimpNac>3</opSimpNac>
+            <regEspTrib>0</regEspTrib>
+          </regTrib>
+        </prest>
+        <toma>
+          <CNPJ>12345678000199</CNPJ>
+          <xNome>Unimed São José dos Campos</xNome>
+          <email>fiscal@unimedsjc.example</email>
+        </toma>
+        <serv>
+          <locPrest>
+            <cLocPrestacao>3549904</cLocPrestacao>
+          </locPrest>
+          <cServ>
+            <cTribNac>040101</cTribNac>
+            <cTribMun>040</cTribMun>
+            <xDescServ>Consulta médica - clínica geral, atendimento em convênio</xDescServ>
+            <cNBS>105011900</cNBS>
+          </cServ>
+        </serv>
+        <valores>
+          <vServPrest>
+            <vServ>1000.00</vServ>
+          </vServPrest>
+          <trib>
+            <tribMun>
+              <tribISSQN>1</tribISSQN>
+              <tpRetISSQN>1</tpRetISSQN>
+            </tribMun>
+            <tribFed>
+              <vRetIRRF>15.00</vRetIRRF>
+            </tribFed>
+            <totTrib>
+              <indTotTrib>0</indTotTrib>
+            </totTrib>
+          </trib>
+        </valores>
+      </infDPS>
+    </DPS>
+  </infNFSe>
+</NFSe>

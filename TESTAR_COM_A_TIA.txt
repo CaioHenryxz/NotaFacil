@@ -1,0 +1,113 @@
+COMO TESTAR O PROGRAMA COM A SUA TIA
+(guia bem simples, sem termo tecnico nenhum)
+
+
+O QUE É ISSO
+
+Isso aqui é uma "vitrine" - uma tela bonita no computador que mostra como o
+programa de notas fiscais vai funcionar quando estiver pronto de verdade.
+Ainda não é o programa final, é só pra ela ver, mexer, e dizer o que achou:
+se entendeu fácil, se ficou bonito, se faltou alguma coisa.
+
+Pode ficar tranquilo: tudo que vocês clicarem aqui é "de brincadeira" (isso
+se chama "modo teste" ou "homologação"). Não sai nota fiscal de verdade,
+não manda e-mail de verdade pra ninguém, não gasta dinheiro nenhum. Podem
+clicar em tudo sem medo de estragar algo.
+
+
+ANTES DE CHAMAR SUA TIA
+(faça essa parte sozinho, uns 5 minutinhos antes dela chegar)
+
+1. Abra o computador e entre na pasta do projeto (a pasta "emissor-nfse").
+
+2. Você vai precisar deixar DUAS janelas pretas abertas (chamadas de
+   "terminal"). Não se assuste com elas - são só duas telinhas que ficam
+   abertas no fundo enquanto vocês testam. Depois dá pra minimizar.
+
+   JANELA 1 - o "motor" que fica trabalhando por trás:
+     - Abra um terminal dentro da pasta do projeto.
+     - Digite isto e aperte Enter:
+           .venv\Scripts\activate
+     - Depois digite isto e aperte Enter:
+           python -m app.api
+     - Vai aparecer bastante texto na tela e ela vai FICAR ABERTA - isso é
+       normal, é sinal de que está funcionando. NÃO FECHE essa janela
+       enquanto estiverem testando.
+
+   JANELA 2 - a telinha bonita (o "site"):
+     - Abra outro terminal, mas dessa vez entre na pasta "prototype"
+       (digite: cd prototype e aperte Enter).
+     - Digite isto e aperte Enter:
+           npm run dev
+     - Vai aparecer um endereço parecido com este:
+           http://localhost:5173/
+     - Copie esse endereço e cole no navegador (Chrome, Edge, o que você
+       usar). Essa janela 2 também precisa ficar aberta.
+
+3. A tela verde e bege do programa deve abrir no navegador. Se aparecer a
+   mensagem "Não consegui falar com o backend", é só porque a Janela 1
+   ainda não terminou de ligar - espere uns segundinhos e clique em
+   "Tentar de novo".
+
+4. Deixe o navegador numa janela grande, ocupando a tela toda (dá um duplo
+   clique na barra de cima do navegador pra ela maximizar). Fica bem mais
+   fácil de ver e de ler.
+
+5. Se for a primeira vez e ainda não tiver nenhum "prestador" cadastrado,
+   cadastre um de teste antes da sua tia chegar, assim ela já vê as telas
+   com algo dentro, em vez de tudo vazio.
+
+
+AGORA SIM, COM A SUA TIA DO LADO
+
+Sente perto dela e vá mostrando com calma, sem pressa, uma tela de cada
+vez. Sugestão de passeio pelo programa:
+
+1. "MEU DIA" (a primeira tela que abre)
+   Mostra um resumo do dia: quantas notas estão prontas pra sair, quantas
+   estão esperando na fila, se algum certificado está perto de vencer. É a
+   tela que a pessoa veria assim que abrisse o programa de manhã.
+
+2. "EMITIR NOTA"
+   Aqui se escolhe um cliente (chamado no programa de "tomador"), escolhe
+   o serviço, confere o valor e clica em "Emitir agora". Deixe ela clicar
+   nesse botão. Vai aparecer uma mensagem dizendo que a nota foi emitida -
+   tudo de brincadeira, claro, é o modo teste.
+
+3. "PRESTADORES"
+   Mostra que o programa guarda cada prestador de serviço (cada médico,
+   cada profissional) separado dos outros, cada um com seu certificado e
+   seus próprios clientes, sem misturar nada de um com o outro.
+
+4. "TOMADORES", "SERVIÇOS" e "MENSALIDADES"
+   São as listas de clientes, os tipos de serviço que são cobrados, e as
+   cobranças que se repetem todo mês sozinhas (tipo uma mensalidade que
+   sai automaticamente todo mês, sem ninguém precisar lembrar de emitir).
+
+5. "HISTÓRICO"
+   Mostra todas as notas que já foram emitidas, com um botão pra reenviar
+   por e-mail ou mandar o link por WhatsApp pro cliente.
+
+
+PERGUNTAS BOAS PRA FAZER PRA ELA DEPOIS
+
+   - Ficou fácil de entender o que cada botão faz?
+   - Algum texto ficou confuso ou com alguma palavra difícil?
+   - Alguma letra ficou pequena demais, difícil de ler?
+   - Ela conseguiria emitir uma nota sozinha, sem ninguém do lado
+     explicando?
+   - Teve alguma coisa que ela esperava encontrar e não achou?
+
+Anote as respostas dela, mesmo as críticas - são elas que ajudam a
+melhorar o programa antes de mostrar pra mais gente.
+
+
+NO FINAL
+
+Pode fechar as duas janelas pretas (clique dentro delas e aperte as teclas
+Ctrl e C juntas, ou simplesmente feche a janela). Depois disso não fica
+nada rodando escondido no computador.
+
+Se travar ou a tela ficar branca em algum momento, não se preocupe: feche
+tudo (as duas janelas pretas e a aba do navegador) e repita o passo 2 do
+começo deste guia.

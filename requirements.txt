@@ -1,0 +1,27 @@
+# Dependências do Emissor NFS-e — subconjunto da lista fechada da espec
+# (docs/spec-mvp.md, secao 7) que o app REALMENTE usa hoje. As demais linhas
+# da secao 7 (PyInstaller = empacotamento, supabase-py = login/licenca) nao
+# entram aqui de proposito: nada no codigo atual importa esses dois, entao
+# instala-los agora so adicionaria peso morto. Entram quando a etapa que os
+# usa (empacotar o .exe / login) for implementada.
+#
+# sqlite3, smtplib, csv, zipfile, xml.etree, winreg sao da biblioteca padrao
+# do Python — nao aparecem aqui, mas sao usados (ver docs/spec-mvp.md §7).
+
+PySide6==6.11.1
+httpx==0.28.1
+signxml==5.1.0
+cryptography==49.0.0
+keyring==25.7.0
+lxml==6.1.1
+# app/fiscal/danfse_builder.py (NT SE/CGNFS-e no 008/2026 v1.02) -- geracao
+# local do DANFSe, pra quando a API oficial for suspensa em 03/08/2026.
+# reportlab: unica lib PDF cuja API de coordenadas absolutas (cm/pt) casa
+# direto com a tabela de posicoes da NT, e ja traz QR Code vetorial embutido
+# (reportlab.graphics.barcode.qr) -- nenhuma outra dependencia de imagem
+# precisa entrar so' por causa do QR Code.
+reportlab==5.0.0
+# pypdf: so' pra sobrepor a marca d'agua (CANCELADA/SUBSTITUIDA) numa
+# segunda passada -- mais simples que replicar a condicional em toda
+# `montar_danfse`.
+pypdf==6.14.2
