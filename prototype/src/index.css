@@ -1,0 +1,20 @@
+/* Reset mínimo — sem isso o navegador aplica margem padrão no <body>
+   (normalmente 8px), que aparecia como uma borda branca ao redor do app
+   inteiro. Fica num arquivo à parte (em vez do <style> dentro de App.jsx)
+   porque precisa valer também nas telas de "Conectando…" e de erro de
+   backend, que renderizam antes daquele bloco. */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+}
