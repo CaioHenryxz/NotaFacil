@@ -10,7 +10,9 @@ from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QHBoxLayout, QHeaderView, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout, QHeaderView, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+)
 
 from app import repo
 from app.core import fila
@@ -43,6 +45,20 @@ class TelaMeuDia(QWidget):
 
         self.rotulo_resumo = widgets.subtitulo("")
         raiz.addWidget(self.rotulo_resumo)
+
+        # --- sugestoes de mensalidade (item 4 da automacao pedida) -----
+        self.cartao_sugestoes = widgets.Cartao()
+        layout_sugestoes = QVBoxLayout(self.cartao_sugestoes)
+        layout_sugestoes.addWidget(widgets.titulo("Isso poderia ser automático"))
+        layout_sugestoes.addWidget(widgets.subtitulo(
+            "Emitidas na mão, sempre pro mesmo tomador e serviço, em meses seguidos — "
+            "dá pra virar mensalidade zero-clique."
+        ))
+        self.tabela_sugestoes = _nova_tabela(
+            ["", "Prestador", "Tomador", "Serviço", "Valor", "Meses seguidos", "Dia do mês", ""]
+        )
+        layout_sugestoes.addWidget(self.tabela_sugestoes)
+        raiz.addWidget(self.cartao_sugestoes)
 
         # --- mensalidades de hoje --------------------------------------
         cartao_mensalidades = widgets.Cartao()
@@ -88,6 +104,24 @@ class TelaMeuDia(QWidget):
     def atualizar(self) -> None:
         dados = self.repositorio.dados_meu_dia(self.obter_hoje())
 
+        sugestoes = dados["sugestoes_mensalidade"]
+        self.cartao_sugestoes.setVisible(bool(sugestoes))
+        self.tabela_sugestoes.setRowCount(len(sugestoes))
+        for linha, s in enumerate(sugestoes):
+            _preencher_linha_com_cor(self.tabela_sugestoes, linha, s["prestador_cor"], [
+                s["prestador_nome"], s["tomador_nome"], s["modelo_descricao"],
+                f"R$ {s['valor_sugerido']}", str(s["meses_seguidos"]),
+            ])
+            spin_dia = QSpinBox()
+            spin_dia.setRange(1, 28)
+            spin_dia.setValue(min(28, self.obter_hoje().day))
+            self.tabela_sugestoes.setCellWidget(linha, 6, spin_dia)
+            botao_virar = QPushButton("Virar mensalidade")
+            botao_virar.clicked.connect(
+                lambda _checked=False, s=s, spin=spin_dia: self._virar_mensalidade(s, spin.value())
+            )
+            self.tabela_sugestoes.setCellWidget(linha, 7, botao_virar)
+
         mensalidades = dados["mensalidades_hoje"]
         self.tabela_mensalidades.setRowCount(len(mensalidades))
         for linha, m in enumerate(mensalidades):
@@ -132,6 +166,20 @@ class TelaMeuDia(QWidget):
         )
 
     # ------------------------------------------------------------------
+    def _virar_mensalidade(self, sugestao: dict, dia_do_mes: int) -> None:
+        """Item 4 da automação pedida: converte um padrão detectado (mesmo
+        tomador+serviço emitido na mão em meses seguidos) numa recorrência
+        de verdade, sem a secretária precisar ir até "Modelos e mensalidades"
+        preencher tudo de novo — os dados já vêm do histórico."""
+        self.repositorio.criar_recorrencia(
+            sugestao["prestador_id"], tomador_id=sugestao["tomador_id"], modelo_id=sugestao["modelo_id"],
+            valor=sugestao["valor_sugerido"], dia_do_mes=dia_do_mes, ativo=True,
+        )
+        widgets.mostrar_info(
+            self, f"Mensalidade automática criada pra {sugestao['tomador_nome']}.", "Mensalidade criada",
+        )
+        self.atualizar()
+
     def _emitir_todas(self) -> None:
         # Criar as notas 'pendente' e' rapido e local (so' banco) -- so' o
         # envio de verdade (`processar_fila`, rede) roda em thread separada

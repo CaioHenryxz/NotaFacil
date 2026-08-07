@@ -1,5 +1,6 @@
 """Testes de app/repo.py — a garantia mais importante do backend: dado de um
 prestador nunca vaza pra outro (espec-mvp-emissor-nfse.md, secao 6)."""
+import datetime
 import tempfile
 import unittest
 from pathlib import Path
@@ -337,6 +338,126 @@ class TestRetencoes(unittest.TestCase):
         tomador = self.repo.obter_tomador(self.p1, tid)
         self.assertEqual(tomador["retem_irrf"], 1)
         self.assertEqual(tomador["aliquota_irrf"], "1.5")
+
+
+class TestHistoricoValoresTomador(unittest.TestCase):
+    """Base do alerta de "valor fora do padrão" (item 3 da automação
+    pedida) -- ver app.core.valores.valor_foge_do_padrao."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = repo.Repositorio(Path(self._tmp.name) / "teste.db")
+        self.pid = self.repo.criar_prestador(
+            nome_exibicao="Dr. Teste", cnpj="11111111000111", im="1", codigo_municipio="3549904",
+        )
+        self.tid = self.repo.criar_tomador(self.pid, doc="11111111111", nome="Tomador Teste")
+        self.mid = self.repo.criar_modelo_servico(
+            self.pid, descricao="Consulta", cod_tributacao_nacional="040101",
+            cod_tributacao_municipal="040", cod_nbs="105011900", valor_padrao="300.00",
+        )
+
+    def tearDown(self):
+        self.repo.fechar()
+        self._tmp.cleanup()
+
+    def _emitir(self, valor: str) -> int:
+        nid = self.repo.criar_nota(self.pid, tomador_id=self.tid, modelo_id=self.mid, valor=valor)
+        self.repo.marcar_emitida(self.pid, nid, chave_acesso=f"C{nid}", xml_conteudo="<NFSe/>")
+        return nid
+
+    def test_mais_recente_primeiro(self):
+        self._emitir("300.00")
+        self._emitir("310.00")
+        self._emitir("320.00")
+        self.assertEqual(
+            self.repo.historico_valores_tomador(self.pid, self.tid, self.mid),
+            ["320.00", "310.00", "300.00"],
+        )
+
+    def test_respeita_o_limite(self):
+        for _ in range(8):
+            self._emitir("300.00")
+        historico = self.repo.historico_valores_tomador(self.pid, self.tid, self.mid, limite=6)
+        self.assertEqual(len(historico), 6)
+
+    def test_so_conta_nota_emitida_com_sucesso(self):
+        self._emitir("300.00")
+        self.repo.criar_nota(self.pid, tomador_id=self.tid, modelo_id=self.mid, valor="999.00")  # fica pendente
+        self.assertEqual(self.repo.historico_valores_tomador(self.pid, self.tid, self.mid), ["300.00"])
+
+    def test_isolado_por_tomador_e_modelo(self):
+        self._emitir("300.00")
+        outro_tomador = self.repo.criar_tomador(self.pid, doc="22222222222", nome="Outro")
+        nid = self.repo.criar_nota(self.pid, tomador_id=outro_tomador, modelo_id=self.mid, valor="9999.00")
+        self.repo.marcar_emitida(self.pid, nid, chave_acesso="COUTRO", xml_conteudo="<NFSe/>")
+        self.assertEqual(self.repo.historico_valores_tomador(self.pid, self.tid, self.mid), ["300.00"])
+
+
+class TestSugestoesDeMensalidade(unittest.TestCase):
+    """Item 4 da automação pedida: detecta tomador+serviço emitido na mão em
+    meses seguidos e sugere virar mensalidade automática."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = repo.Repositorio(Path(self._tmp.name) / "teste.db")
+        self.pid = self.repo.criar_prestador(
+            nome_exibicao="Dr. Teste", cnpj="11111111000111", im="1", codigo_municipio="3549904",
+        )
+        self.tid = self.repo.criar_tomador(self.pid, doc="11111111111", nome="Tomador Teste")
+        self.mid = self.repo.criar_modelo_servico(
+            self.pid, descricao="Consulta", cod_tributacao_nacional="040101",
+            cod_tributacao_municipal="040", cod_nbs="105011900", valor_padrao="300.00",
+        )
+
+    def tearDown(self):
+        self.repo.fechar()
+        self._tmp.cleanup()
+
+    def _emitir_manual(self, valor: str, emitida_em: datetime.datetime, *, recorrencia_id=None) -> int:
+        nid = self.repo.criar_nota(
+            self.pid, tomador_id=self.tid, modelo_id=self.mid, valor=valor, recorrencia_id=recorrencia_id,
+        )
+        self.repo.marcar_emitida(self.pid, nid, chave_acesso=f"C{nid}", xml_conteudo="<NFSe/>", emitida_em=emitida_em)
+        return nid
+
+    def test_dois_meses_seguidos_na_mao_sugere_mensalidade(self):
+        self._emitir_manual("300.00", datetime.datetime(2026, 7, 15))
+        self._emitir_manual("300.00", datetime.datetime(2026, 8, 10))
+
+        sugestoes = self.repo.sugestoes_de_mensalidade(datetime.date(2026, 8, 20))
+
+        self.assertEqual(len(sugestoes), 1)
+        s = sugestoes[0]
+        self.assertEqual(s["tomador_id"], self.tid)
+        self.assertEqual(s["modelo_id"], self.mid)
+        self.assertEqual(s["valor_sugerido"], "300.00")
+        self.assertEqual(s["meses_seguidos"], 2)
+
+    def test_um_mes_so_nao_sugere(self):
+        self._emitir_manual("300.00", datetime.datetime(2026, 8, 10))
+        self.assertEqual(self.repo.sugestoes_de_mensalidade(datetime.date(2026, 8, 20)), [])
+
+    def test_meses_nao_seguidos_nao_sugere(self):
+        # junho e agosto, sem julho -- nao e' um padrao continuo
+        self._emitir_manual("300.00", datetime.datetime(2026, 6, 15))
+        self._emitir_manual("300.00", datetime.datetime(2026, 8, 10))
+        self.assertEqual(self.repo.sugestoes_de_mensalidade(datetime.date(2026, 8, 20)), [])
+
+    def test_ja_tem_recorrencia_ativa_nao_sugere_de_novo(self):
+        self._emitir_manual("300.00", datetime.datetime(2026, 7, 15))
+        self._emitir_manual("300.00", datetime.datetime(2026, 8, 10))
+        self.repo.criar_recorrencia(self.pid, tomador_id=self.tid, modelo_id=self.mid, valor="300.00", dia_do_mes=10)
+
+        self.assertEqual(self.repo.sugestoes_de_mensalidade(datetime.date(2026, 8, 20)), [])
+
+    def test_notas_ja_automaticas_nao_contam_pro_padrao_manual(self):
+        rec_id = self.repo.criar_recorrencia(
+            self.pid, tomador_id=self.tid, modelo_id=self.mid, valor="300.00", dia_do_mes=10
+        )
+        self._emitir_manual("300.00", datetime.datetime(2026, 7, 15), recorrencia_id=rec_id)
+        self._emitir_manual("300.00", datetime.datetime(2026, 8, 10), recorrencia_id=rec_id)
+        # ja' e' recorrencia (e ja' esta' ativa) -- nao faz sentido sugerir de novo
+        self.assertEqual(self.repo.sugestoes_de_mensalidade(datetime.date(2026, 8, 20)), [])
 
 
 if __name__ == "__main__":

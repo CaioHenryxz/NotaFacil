@@ -8,11 +8,13 @@ prestador_id e o usa no WHERE — e a unica forma barata de garantir que os
 dados de um prestador nunca vazem para outro (nem sequer por um bug de tela).
 
 As UNICAS excecoes deliberadas sao `listar_notas_pendentes_prontas_para_tentar`
-(usada pelo agendador da fila em core/fila.py) e `dados_meu_dia` (usada pela
-tela "Meu Dia" da UI) — ambas varrem TODOS os prestadores de uma vez, leitura
-agregada e somente leitura, sem qualquer escrita fora do escopo de
-prestador_id de cada linha. E exatamente o carve-out que a espec, secao 6,
-descreve pro painel "Meu Dia": "agrega todos, mas e read-only + acoes em lote".
+e `listar_notas_email_falhou_prontas_para_tentar` (usadas pelo agendador em
+core/fila.py e core/email.py) e `dados_meu_dia` (usada pela tela "Meu Dia" da
+UI, e que agora tambem carrega `sugestoes_de_mensalidade`) — todas varrem
+TODOS os prestadores de uma vez, leitura agregada e somente leitura, sem
+qualquer escrita fora do escopo de prestador_id de cada linha. E exatamente o
+carve-out que a espec, secao 6, descreve pro painel "Meu Dia": "agrega todos,
+mas e read-only + acoes em lote".
 
 Colunas alem das literalmente listadas na espec (ex.: codigo_municipio e
 caminho_pfx em prestadores; cod_tributacao_municipal e cod_nbs em
@@ -24,6 +26,7 @@ from __future__ import annotations
 
 import datetime as dt
 import sqlite3
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -140,6 +143,12 @@ CREATE TABLE IF NOT EXISTS notas (
     emitida_em TEXT,
     email_status TEXT NOT NULL DEFAULT 'nao_enviado',  -- nao_enviado|enviado|falhou (Etapa 3)
     email_erro TEXT,
+    -- Retry automatico de e-mail falhado (mesmo espirito da fila de emissao,
+    -- item 2 da lista de automacoes pedida pelo usuario): backoff identico
+    -- (app.core.backoff), rodado a cada ciclo do agendador, sem a secretaria
+    -- precisar notar e clicar "Reenviar" na mao.
+    email_tentativas INTEGER NOT NULL DEFAULT 0,
+    proxima_tentativa_email_em TEXT,
     cod_motivo_cancelamento TEXT,   -- cMotivo do evento e101101: 1 Erro na Emissao | 2 Servico nao Prestado | 9 Outros
     motivo_cancelamento_texto TEXT, -- xMotivo (obrigatorio so' quando cod_motivo=9)
     erro_cancelamento TEXT,         -- ultimo motivo de RECUSA do cancelamento (prazo expirado, ja cancelada etc.)
@@ -262,6 +271,8 @@ class Repositorio:
             ("erro_cancelamento", "TEXT"),
             ("protocolo_cancelamento", "TEXT"),
             ("cancelamento_confirmado_em", "TEXT"),
+            ("email_tentativas", "INTEGER NOT NULL DEFAULT 0"),
+            ("proxima_tentativa_email_em", "TEXT"),
             ("retem_irrf", "INTEGER NOT NULL DEFAULT 0"),
             ("aliquota_irrf", "TEXT"),
             ("retem_pis", "INTEGER NOT NULL DEFAULT 0"),
@@ -868,17 +879,58 @@ class Repositorio:
 
     def marcar_email_enviado(self, prestador_id: int, nota_id: int) -> None:
         self._conn.execute(
-            "UPDATE notas SET email_status = ?, email_erro = NULL WHERE prestador_id = ? AND id = ?",
+            """UPDATE notas SET email_status = ?, email_erro = NULL,
+               email_tentativas = 0, proxima_tentativa_email_em = NULL
+               WHERE prestador_id = ? AND id = ?""",
             (EMAIL_ENVIADO, prestador_id, nota_id),
         )
         self._conn.commit()
 
-    def marcar_email_falhou(self, prestador_id: int, nota_id: int, *, erro: str) -> None:
+    def marcar_email_falhou(
+        self, prestador_id: int, nota_id: int, *, erro: str,
+        proxima_tentativa_em: Optional[dt.datetime] = None,
+    ) -> None:
+        """`proxima_tentativa_em`: agenda o retry automatico (core/email.
+        reprocessar_emails_falhados, chamado pelo agendador a cada ciclo) --
+        mesmo backoff da fila de emissao (app.core.backoff), calculado por
+        quem chama (core/email.enviar_nota_email) com base em
+        notas.email_tentativas. Mesmo caminho pro clique manual "Reenviar"
+        do Historico e pro retry automatico -- igual a fila de emissao, que
+        tambem nao distingue disparo manual de automatico pra agendar retry."""
         self._conn.execute(
-            "UPDATE notas SET email_status = ?, email_erro = ? WHERE prestador_id = ? AND id = ?",
-            (EMAIL_FALHOU, erro, prestador_id, nota_id),
+            """UPDATE notas SET email_status = ?, email_erro = ?,
+               email_tentativas = email_tentativas + 1, proxima_tentativa_email_em = ?
+               WHERE prestador_id = ? AND id = ?""",
+            (EMAIL_FALHOU, erro, _iso(proxima_tentativa_em), prestador_id, nota_id),
         )
         self._conn.commit()
+
+    def listar_notas_email_falhou_prontas_para_tentar(self, agora: dt.datetime) -> List[Dict[str, Any]]:
+        """Mesma excecao deliberada de escopo que `listar_notas_pendentes_prontas_para_tentar`
+        (ver docstring la em cima) -- o agendador varre todos os prestadores."""
+        linhas = self._conn.execute(
+            """SELECT * FROM notas
+               WHERE email_status = ?
+                 AND (proxima_tentativa_email_em IS NULL OR proxima_tentativa_email_em <= ?)
+               ORDER BY id""",
+            (EMAIL_FALHOU, _iso(agora)),
+        ).fetchall()
+        return [dict(l) for l in linhas]
+
+    def historico_valores_tomador(
+        self, prestador_id: int, tomador_id: int, modelo_id: int, *, limite: int = 6
+    ) -> List[str]:
+        """Ultimos `limite` valores de notas EMITIDAS com sucesso pro mesmo
+        tomador+servico, mais recente primeiro -- base pro alerta de "valor
+        fora do padrao" (app.core.valores.valor_foge_do_padrao) antes de
+        emitir uma nota avulsa."""
+        linhas = self._conn.execute(
+            """SELECT valor FROM notas
+               WHERE prestador_id = ? AND tomador_id = ? AND modelo_id = ? AND status = ?
+               ORDER BY id DESC LIMIT ?""",
+            (prestador_id, tomador_id, modelo_id, STATUS_EMITIDA, limite),
+        ).fetchall()
+        return [l["valor"] for l in linhas]
 
     def listar_notas_do_mes(self, prestador_id: int, ano: int, mes: int) -> List[Dict[str, Any]]:
         """Notas emitidas/canceladas num mes especifico — usado pelo
@@ -975,7 +1027,73 @@ class Repositorio:
             "notas_pendentes": [dict(l) for l in notas_pendentes],
             "notas_rejeitadas": [dict(l) for l in notas_rejeitadas],
             "certificados_a_vencer": [dict(l) for l in certificados_a_vencer],
+            "sugestoes_mensalidade": self.sugestoes_de_mensalidade(hoje),
         }
+
+    def sugestoes_de_mensalidade(self, hoje: dt.date, meses_seguidos: int = 2) -> List[Dict[str, Any]]:
+        """Item 4 da automacao pedida: detecta tomador+servico emitidos NA
+        MAO (recorrencia_id IS NULL) em cada um dos ultimos `meses_seguidos`
+        meses de calendario (incluindo o mes atual) e sugere virar
+        mensalidade -- converte trabalho manual repetido em zero-clique sem
+        a secretaria ter que lembrar de configurar sozinha.
+
+        So' sugere se AINDA nao existe recorrencia ativa pra esse mesmo
+        tomador+servico (senao ficaria sugerindo algo que ja foi feito).
+        E' so' leitura + calculo em Python — nenhuma escrita, e' a mesma
+        excecao deliberada de escopo global do resto deste metodo (ver
+        docstring do modulo)."""
+        linhas = self._conn.execute(
+            """SELECT n.prestador_id, p.nome_exibicao AS prestador_nome, p.cor AS prestador_cor,
+                      n.tomador_id, t.nome AS tomador_nome, n.modelo_id, m.descricao AS modelo_descricao,
+                      n.valor, strftime('%Y-%m', COALESCE(n.emitida_em, n.criada_em)) AS mes_ref
+               FROM notas n
+               JOIN prestadores p ON p.id = n.prestador_id
+               JOIN tomadores t ON t.id = n.tomador_id
+               JOIN modelos_servico m ON m.id = n.modelo_id
+               WHERE n.status = ? AND n.recorrencia_id IS NULL AND p.ativo = 1 AND t.ativo = 1
+               ORDER BY n.prestador_id, n.tomador_id, n.modelo_id, n.id DESC""",
+            (STATUS_EMITIDA,),
+        ).fetchall()
+
+        meses_esperados = set()
+        ano, mes = hoje.year, hoje.month
+        for _ in range(meses_seguidos):
+            meses_esperados.add(f"{ano:04d}-{mes:02d}")
+            mes -= 1
+            if mes == 0:
+                mes, ano = 12, ano - 1
+
+        grupos: Dict[tuple, List[sqlite3.Row]] = defaultdict(list)
+        for linha in linhas:
+            grupos[(linha["prestador_id"], linha["tomador_id"], linha["modelo_id"])].append(linha)
+
+        ja_tem_recorrencia = {
+            (l["prestador_id"], l["tomador_id"], l["modelo_id"])
+            for l in self._conn.execute(
+                "SELECT prestador_id, tomador_id, modelo_id FROM recorrencias WHERE ativo = 1"
+            ).fetchall()
+        }
+
+        sugestoes = []
+        for chave, linhas_grupo in grupos.items():
+            if chave in ja_tem_recorrencia:
+                continue
+            meses_presentes = {l["mes_ref"] for l in linhas_grupo}
+            if not meses_esperados.issubset(meses_presentes):
+                continue
+            mais_recente = linhas_grupo[0]  # ORDER BY ... n.id DESC dentro do grupo
+            sugestoes.append({
+                "prestador_id": mais_recente["prestador_id"],
+                "prestador_nome": mais_recente["prestador_nome"],
+                "prestador_cor": mais_recente["prestador_cor"],
+                "tomador_id": mais_recente["tomador_id"],
+                "tomador_nome": mais_recente["tomador_nome"],
+                "modelo_id": mais_recente["modelo_id"],
+                "modelo_descricao": mais_recente["modelo_descricao"],
+                "valor_sugerido": mais_recente["valor"],
+                "meses_seguidos": len(meses_presentes),
+            })
+        return sugestoes
 
     # ------------------------------------------------------------------
     # config (chave/valor livre — smtp, pasta_base, prefs)

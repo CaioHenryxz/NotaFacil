@@ -9,13 +9,15 @@ meio, o e-mail sai "de" quem o tomador já conhece.
 """
 from __future__ import annotations
 
+import datetime as dt
 import smtplib
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Union
+from typing import Dict, Iterable, List, Optional, Union
 
 from app import repo
 from app.core import email_config
+from app.core.backoff import proximo_atraso
 
 CaminhoLike = Union[str, Path]
 
@@ -61,10 +63,19 @@ def _enviar_smtp(
         servidor.send_message(msg)
 
 
-def enviar_nota_email(repositorio: repo.Repositorio, prestador: Dict, tomador: Dict, nota: Dict) -> None:
+def enviar_nota_email(
+    repositorio: repo.Repositorio, prestador: Dict, tomador: Dict, nota: Dict,
+    *, agora: Optional[dt.datetime] = None,
+) -> None:
     """Envio automático pós-emissão. NUNCA levanta exceção pra fora — quem
     chama (core/fila.py) não precisa (nem deve) tratar erro de e-mail; o
-    resultado fica só marcado em notas.email_status/email_erro."""
+    resultado fica só marcado em notas.email_status/email_erro.
+
+    `agora`: referência de tempo pro calculo do proximo retry em caso de
+    falha (mesmo padrao de `fila.processar_fila`) -- default é o relógio
+    real; `reprocessar_emails_falhados` passa o mesmo `agora` que usou pra
+    decidir que esta nota estava pronta, pra nunca desalinhar os dois."""
+    agora = agora or dt.datetime.now()
     if not tomador.get("email"):
         return  # sem e-mail cadastrado nao e falha, so nao ha o que enviar
 
@@ -82,7 +93,17 @@ def enviar_nota_email(repositorio: repo.Repositorio, prestador: Dict, tomador: D
             corpo, anexos=[anexo] if anexo else [],
         )
     except Exception as exc:  # noqa: BLE001 — traduzido pra tela, nunca propaga
-        repositorio.marcar_email_falhou(nota["prestador_id"], nota["id"], erro=str(exc))
+        # Retry automatico (item 2 da automacao pedida): mesmo backoff da
+        # fila de emissao (5min -> 30min -> 2h -> 6h em diante), rodado pelo
+        # ciclo do agendador (core/agendador.rodar_ciclo) via
+        # `reprocessar_emails_falhados` abaixo -- a secretaria nao precisa
+        # notar "Não enviado" no Histórico e clicar "Reenviar" na mão pra um
+        # SMTP que caiu por um minuto.
+        tentativas = (nota.get("email_tentativas") or 0) + 1
+        proxima = agora + proximo_atraso(tentativas)
+        repositorio.marcar_email_falhou(
+            nota["prestador_id"], nota["id"], erro=str(exc), proxima_tentativa_em=proxima,
+        )
         return
     repositorio.marcar_email_enviado(nota["prestador_id"], nota["id"])
 
@@ -92,6 +113,28 @@ def reenviar_nota_email(repositorio: repo.Repositorio, prestador: Dict, tomador:
     quem chama já sabe que havia um e-mail cadastrado (a tela só habilita o
     botão nesse caso)."""
     enviar_nota_email(repositorio, prestador, tomador, nota)
+
+
+def reprocessar_emails_falhados(
+    repositorio: repo.Repositorio, *, agora: Optional[dt.datetime] = None,
+) -> List[Dict]:
+    """Motor do retry automatico (item 2 da automacao pedida) -- roda a cada
+    ciclo do agendador (core/agendador.rodar_ciclo), mesmo espirito de
+    `fila.processar_fila`: varre toda nota com e-mail "falhou" pronta pra
+    tentar de novo (backoff já vencido) e reenvia sozinha, sem clique
+    nenhum. Devolve um resultado por nota tentada, pra quem chamou poder
+    contar quantas foram recuperadas."""
+    agora = agora or dt.datetime.now()
+    resultados: List[Dict] = []
+    for nota in repositorio.listar_notas_email_falhou_prontas_para_tentar(agora):
+        prestador = repositorio.obter_prestador(nota["prestador_id"])
+        tomador = repositorio.obter_tomador(nota["prestador_id"], nota["tomador_id"])
+        if prestador is None or tomador is None:
+            continue  # prestador/tomador excluido depois da nota -- nao ha' mais pra quem reenviar
+        enviar_nota_email(repositorio, prestador, tomador, nota, agora=agora)
+        nota_atualizada = repositorio.obter_nota(nota["prestador_id"], nota["id"])
+        resultados.append({"nota_id": nota["id"], "email_status": nota_atualizada["email_status"]})
+    return resultados
 
 
 def enviar_fechamento_email(

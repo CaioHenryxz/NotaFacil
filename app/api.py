@@ -415,6 +415,26 @@ def emitir_nota_avulsa(prestador_id: int):
     return nota
 
 
+@app.get("/api/prestadores/<int:prestador_id>/tomadores/<int:tomador_id>/alerta-valor")
+@_rota
+def alerta_valor(prestador_id: int, tomador_id: int):
+    """Item 3 da automação pedida: antes de emitir, avisa (sem bloquear) se
+    o valor digitado fugir muito do que esse tomador+serviço costuma pagar
+    — pega cedo o erro de digitação (docs/auditoria.md, Bloco 3) em vez de
+    só descobrir na rejeição ou no extrato do mês."""
+    modelo_id = request.args.get("modelo_id", type=int)
+    valor = request.args.get("valor", "")
+    try:
+        valor_normalizado = _normalizar_valor(valor) if valor else None
+    except valores.ValorInvalido:
+        valor_normalizado = None  # ainda digitando -- so' nao ha' o que checar agora, nao e' erro
+    if modelo_id is None or valor_normalizado is None:
+        return {"alerta": None}
+    historico = repositorio.historico_valores_tomador(prestador_id, tomador_id, modelo_id)
+    alerta = valores.valor_foge_do_padrao(valor_normalizado, historico)
+    return {"alerta": alerta}
+
+
 @app.post("/api/prestadores/<int:prestador_id>/notas/<int:nota_id>/cancelar")
 @_rota
 def cancelar_nota(prestador_id: int, nota_id: int):
@@ -511,6 +531,58 @@ def salvar_config():
         senha=corpo.get("smtp_senha", ""),
     )
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Navegador de pastas (só protótipo: o navegador não tem como abrir o
+# seletor nativo do SO e devolver um caminho absoluto de verdade — mas como
+# este backend roda na MESMA máquina do navegador nesta demo, dá pra montar
+# um "Escolher pasta" visual em HTML puro listando o sistema de arquivos
+# local, sem precisar de nenhuma dependência nova. O app desktop de verdade
+# já resolve isso nativamente com QFileDialog, ver app/ui/tela_configuracoes.py.
+# --------------------------------------------------------------------------
+def _pasta_existente_mais_proxima(caminho: Path) -> Path:
+    """`caminho` pedido pode nao existir ainda (ex.: pasta base padrao,
+    'Documentos/Notas Fiscais', antes da primeira nota ser emitida) -- sobe
+    ate achar um ancestral que exista, pra sempre ter o que listar."""
+    caminho = caminho.expanduser()
+    while not caminho.is_dir():
+        pai = caminho.parent
+        if pai == caminho:  # chegou na raiz sem achar nada -- desiste pra home
+            return Path.home()
+        caminho = pai
+    return caminho
+
+
+@app.get("/api/pastas/listar")
+@_rota
+def listar_pastas():
+    pedido = request.args.get("caminho") or _pasta_base()
+    caminho = _pasta_existente_mais_proxima(Path(pedido))
+    subpastas = []
+    try:
+        for item in sorted(caminho.iterdir(), key=lambda p: p.name.lower()):
+            try:
+                if item.is_dir() and not item.name.startswith("."):
+                    subpastas.append({"nome": item.name, "caminho": str(item)})
+            except OSError:
+                continue  # link quebrado ou sem permissao pra stat -- so' ignora
+    except PermissionError:
+        pass  # pasta sem permissao de leitura -- devolve vazio, nao quebra
+    pai = str(caminho.parent) if caminho.parent != caminho else None
+    return {"caminho": str(caminho), "pai": pai, "pastas": subpastas}
+
+
+@app.post("/api/pastas/criar")
+@_rota
+def criar_pasta():
+    corpo = request.get_json(force=True)
+    nome = (corpo.get("nome") or "").strip()
+    if not nome or "/" in nome or "\\" in nome:
+        raise ValueError("Digite um nome de pasta válido.")
+    nova = Path(corpo["caminho_pai"]).expanduser() / nome
+    nova.mkdir(exist_ok=True)
+    return {"caminho": str(nova)}
 
 
 def main() -> None:

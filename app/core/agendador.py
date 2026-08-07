@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from app import repo
+from app.core import email as email_service
 from app.core import fila
 
 CHAVE_CONFIG_ULTIMA_VERIFICACAO = "ultima_verificacao_recorrencias"
@@ -29,6 +30,13 @@ class ResultadoCiclo:
     notas_criadas_catchup: List[int] = field(default_factory=list)
     dias_atrasados: List[dt.date] = field(default_factory=list)
     resultados_fila: List[dict] = field(default_factory=list)
+    resultados_email: List[dict] = field(default_factory=list)
+
+    @property
+    def emails_recuperados(self) -> int:
+        """Quantos e-mails que tinham falhado saíram sozinhos neste ciclo
+        (item 2 da automação pedida) -- ver `email.reprocessar_emails_falhados`."""
+        return sum(1 for r in self.resultados_email if r["email_status"] == repo.EMAIL_ENVIADO)
 
     @property
     def houve_atraso(self) -> bool:
@@ -97,9 +105,15 @@ def rodar_ciclo(
 
     repositorio.set_config(CHAVE_CONFIG_ULTIMA_VERIFICACAO, hoje.isoformat())
 
+    agora = dt.datetime.combine(hoje, dt.datetime.now().time())
     kwargs = {} if emissor is None else {"emissor": emissor}
-    resultados = fila.processar_fila(repositorio, pasta_base, agora=dt.datetime.combine(hoje, dt.datetime.now().time()), **kwargs)
+    resultados = fila.processar_fila(repositorio, pasta_base, agora=agora, **kwargs)
+    # Retry de e-mail falhado (item 2 da automacao pedida) roda no mesmo
+    # ciclo que ja existe pra recorrencias + fila de emissao -- nenhum QTimer
+    # novo, so' mais um passo no mesmo tick de 15 min.
+    resultados_email = email_service.reprocessar_emails_falhados(repositorio, agora=agora)
 
     return ResultadoCiclo(
-        notas_criadas_catchup=notas_criadas, dias_atrasados=dias_atrasados, resultados_fila=resultados,
+        notas_criadas_catchup=notas_criadas, dias_atrasados=dias_atrasados,
+        resultados_fila=resultados, resultados_email=resultados_email,
     )

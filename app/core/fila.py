@@ -22,27 +22,15 @@ from typing import Callable, Dict, List, Optional
 from app import repo
 from app.core import email as email_service
 from app.core import pastas
+from app.core.backoff import BACKOFF, RETRY_RECORRENTE, proximo_atraso  # noqa: F401 -- reexportado (fila.BACKOFF etc. continuam validos)
 from app.fiscal import api_nacional, assinador
 from app.fiscal import danfse_builder
 from app.fiscal import dps_builder as db
 from app.fiscal import evento_builder as eb
 
-# 5 min -> 30 min -> 2 h -> daí em diante, a cada 6 h (espec, secao 2 item 7)
-BACKOFF = [dt.timedelta(minutes=5), dt.timedelta(minutes=30), dt.timedelta(hours=2)]
-RETRY_RECORRENTE = dt.timedelta(hours=6)
-
 EmissorCallable = Callable[[Dict, Dict, Dict, Dict], api_nacional.RespostaEmissao]
 CanceladorCallable = Callable[[Dict, Dict], api_nacional.RespostaCancelamento]
 ReconciliadorCallable = Callable[[Dict, Dict], api_nacional.RespostaConsultaDps]
-
-
-def proximo_atraso(tentativas: int) -> dt.timedelta:
-    """tentativas=1 -> 5min, 2 -> 30min, 3 -> 2h, 4+ -> 6h em diante."""
-    if tentativas <= 0:
-        tentativas = 1
-    if tentativas <= len(BACKOFF):
-        return BACKOFF[tentativas - 1]
-    return RETRY_RECORRENTE
 
 
 def _valor_retido(nota: Dict, campo_retem: str, campo_aliquota: str) -> Optional[str]:
