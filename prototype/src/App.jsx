@@ -1785,7 +1785,6 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap');
         html { -webkit-text-size-adjust: 100%; }
-        * { box-sizing: border-box; }
         button:hover { opacity: .92; }
         @keyframes toastIn { from { transform: translateY(12px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
 
