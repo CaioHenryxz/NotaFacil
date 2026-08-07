@@ -5,11 +5,13 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QComboBox, QFormLayout, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
 from app import repo
 from app.core import fila
-from app.ui import widgets
+from app.core import valores as valores_service
+from app.ui import tema, widgets
 
 
 class TelaEmitir(QWidget):
@@ -19,6 +21,13 @@ class TelaEmitir(QWidget):
         self.obter_pasta_base = obter_pasta_base
         self.prestador_id: Optional[int] = None
         self._modelos_por_indice: list = []
+        # Item 3 da automacao pedida: alerta (nunca bloqueia) se o valor
+        # digitado fugir muito do padrao historico do tomador+servico --
+        # debounce curto pra nao recalcular a cada tecla digitada.
+        self._timer_alerta_valor = QTimer(self)
+        self._timer_alerta_valor.setSingleShot(True)
+        self._timer_alerta_valor.setInterval(400)
+        self._timer_alerta_valor.timeout.connect(self._verificar_alerta_valor)
         self._montar_layout()
 
     def _montar_layout(self) -> None:
@@ -38,9 +47,16 @@ class TelaEmitir(QWidget):
         formulario.addRow("Serviço (modelo):", self.combo_modelo)
 
         self.campo_valor = widgets.CampoValorMonetario()
+        self.campo_valor.textEdited.connect(lambda _texto: self._timer_alerta_valor.start())
         formulario.addRow("Valor (R$):", self.campo_valor)
 
         raiz.addWidget(cartao)
+
+        self.rotulo_alerta_valor = widgets.subtitulo("")
+        self.rotulo_alerta_valor.setWordWrap(True)
+        self.rotulo_alerta_valor.setStyleSheet(f"color: {tema.COR_ALERTA}; font-weight: 600;")
+        self.rotulo_alerta_valor.setVisible(False)
+        raiz.addWidget(self.rotulo_alerta_valor)
 
         cartao_retencoes = widgets.Cartao()
         layout_retencoes = QVBoxLayout(cartao_retencoes)
@@ -76,6 +92,7 @@ class TelaEmitir(QWidget):
         self._modelos_por_indice = []
 
         if self.prestador_id is None:
+            self.rotulo_alerta_valor.setVisible(False)
             self._atualizar_estado()
             return
 
@@ -105,6 +122,7 @@ class TelaEmitir(QWidget):
         indice = self.combo_modelo.currentIndex()
         if 0 <= indice < len(self._modelos_por_indice):
             self.campo_valor.definir_valor(self._modelos_por_indice[indice]["valor_padrao"])
+        self._timer_alerta_valor.start()
 
     def _ao_trocar_tomador(self) -> None:
         """Carrega o padrão de retenção do tomador escolhido (docs/auditoria.md,
@@ -113,9 +131,35 @@ class TelaEmitir(QWidget):
         tomador_id = self.combo_tomador.currentData()
         if tomador_id is None or self.prestador_id is None:
             self.painel_retencoes.definir_valores({})
+        else:
+            tomador = self.repositorio.obter_tomador(self.prestador_id, tomador_id)
+            self.painel_retencoes.definir_valores(tomador or {})
+        self._timer_alerta_valor.start()
+
+    def _verificar_alerta_valor(self) -> None:
+        """Item 3 da automação pedida: avisa (nunca bloqueia) se o valor
+        fugir muito do que esse tomador+serviço costuma pagar — pega cedo
+        o erro de digitação (docs/auditoria.md, Bloco 3) em vez de só
+        descobrir na rejeição ou no extrato do mês."""
+        tomador_id = self.combo_tomador.currentData()
+        modelo_id = self.combo_modelo.currentData()
+        if (
+            tomador_id is None or modelo_id is None or self.prestador_id is None
+            or self.campo_valor.valor_decimal() <= 0
+        ):
+            self.rotulo_alerta_valor.setVisible(False)
             return
-        tomador = self.repositorio.obter_tomador(self.prestador_id, tomador_id)
-        self.painel_retencoes.definir_valores(tomador or {})
+        historico = self.repositorio.historico_valores_tomador(self.prestador_id, tomador_id, modelo_id)
+        alerta = valores_service.valor_foge_do_padrao(self.campo_valor.valor_normalizado(), historico)
+        if alerta is None:
+            self.rotulo_alerta_valor.setVisible(False)
+            return
+        self.rotulo_alerta_valor.setText(
+            f"⚠ As últimas {alerta['quantidade_notas']} nota(s) desse tomador pra esse serviço ficaram em torno "
+            f"de R$ {alerta['media_historica']} — esse valor está bem diferente "
+            f"({alerta['percentual_diferenca']:.0f}%). Confira antes de emitir (pode estar certo mesmo assim)."
+        )
+        self.rotulo_alerta_valor.setVisible(True)
 
     # ------------------------------------------------------------------
     def _emitir(self) -> None:

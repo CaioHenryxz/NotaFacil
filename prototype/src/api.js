@@ -104,6 +104,8 @@ export const api = {
     req(`/prestadores/${prestadorId}/notas`, { method: "POST", body: json(dados) }),
   cancelarNota: (prestadorId, notaId) =>
     req(`/prestadores/${prestadorId}/notas/${notaId}/cancelar`, { method: "POST" }),
+  alertaValor: (prestadorId, tomadorId, modeloId, valor) =>
+    req(`/prestadores/${prestadorId}/tomadores/${tomadorId}/alerta-valor?modelo_id=${modeloId}&valor=${encodeURIComponent(valor)}`),
   reenviarEmail: (prestadorId, notaId) =>
     req(`/prestadores/${prestadorId}/notas/${notaId}/reenviar-email`, { method: "POST" }),
 
@@ -115,4 +117,8 @@ export const api = {
   // --- configurações ---
   obterConfig: () => req("/config"),
   salvarConfig: (dados) => req("/config", { method: "POST", body: json(dados) }),
+
+  // --- navegador de pastas (protótipo só, backend roda na mesma máquina) ---
+  listarPastas: (caminho) => req(`/pastas/listar${caminho ? `?caminho=${encodeURIComponent(caminho)}` : ""}`),
+  criarPasta: (caminhoPai, nome) => req("/pastas/criar", { method: "POST", body: json({ caminho_pai: caminhoPai, nome }) }),
 };

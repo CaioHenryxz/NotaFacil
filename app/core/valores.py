@@ -18,8 +18,23 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal
+from typing import Iterable, Optional, TypedDict
 
 MAXIMO_DIGITOS_INTEIROS = 15  # TSDec15V2 -- ver docstring do modulo
+
+# Item 3 da automacao pedida pelo usuario: alerta (nunca bloqueia) quando o
+# valor digitado foge muito do que aquele tomador+servico costuma pagar --
+# pega cedo o erro de digitacao real que a auditoria descreveu (docs/
+# auditoria.md, Bloco 3: "R$300 virar R$3.000 por um zero a mais"), sem
+# travar quem realmente mudou o valor de proposito (reajuste, servico extra).
+MINIMO_NOTAS_PARA_PADRAO = 2  # sem pelo menos 2 notas anteriores, nao ha "padrao" pra comparar
+LIMITE_DESVIO_PADRAO = Decimal("0.5")  # 50% de diferenca da media dispara o alerta
+
+
+class AlertaValorForaDoPadrao(TypedDict):
+    media_historica: str
+    quantidade_notas: int
+    percentual_diferenca: float
 
 
 class ValorInvalido(ValueError):
@@ -111,3 +126,32 @@ def normalizar_valor_monetario(bruto) -> str:
         raise ValorInvalido("O valor precisa ser maior que zero.")
 
     return f"{valor:.2f}"
+
+
+def valor_foge_do_padrao(
+    valor_novo: str, historico: Iterable[str], *, limite: Decimal = LIMITE_DESVIO_PADRAO,
+) -> Optional[AlertaValorForaDoPadrao]:
+    """Compara `valor_novo` (já normalizado, ex.: "3000.00") com a média dos
+    últimos valores emitidos pro mesmo tomador+serviço (`historico`, mais
+    recente primeiro — ver `repo.historico_valores_tomador`). Devolve `None`
+    quando está dentro do padrão OU quando não há histórico suficiente pra
+    ter um padrão de verdade (nota nova pra aquele tomador não é "fora do
+    padrão", é só a primeira). Nunca bloqueia — só informa pra tela decidir
+    se mostra um aviso; quem chama sempre pode emitir mesmo assim."""
+    valores_historicos = [Decimal(v) for v in historico]
+    if len(valores_historicos) < MINIMO_NOTAS_PARA_PADRAO:
+        return None
+
+    media = sum(valores_historicos) / len(valores_historicos)
+    if media == 0:
+        return None
+    novo = Decimal(str(valor_novo))
+    desvio = abs(novo - media) / media
+    if desvio <= limite:
+        return None
+
+    return {
+        "media_historica": f"{media:.2f}",
+        "quantidade_notas": len(valores_historicos),
+        "percentual_diferenca": float((desvio * 100).quantize(Decimal("1"))),
+    }

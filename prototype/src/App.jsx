@@ -3,7 +3,7 @@ import {
   Sun, FileText, Users, Stethoscope, Repeat, History, Settings,
   ChevronDown, FolderOpen, Mail, MessageCircle, AlertTriangle,
   CheckCircle2, Clock, XCircle, Plus, Search, Send, ShieldCheck, Zap, X, Upload,
-  Pencil, Trash2,
+  Pencil, Trash2, Folder, FolderPlus, ArrowUp,
 } from "lucide-react";
 import { api } from "./api.js";
 
@@ -357,6 +357,8 @@ function MeuDia({ setToast }) {
         <Stat icon={<ShieldCheck size={17} />} n={dados.certificados_a_vencer.length} label="certificado(s) vencendo" cor={T.red} />
       </div>
 
+      <CartaoSugestoesMensalidade sugestoes={dados.sugestoes_mensalidade} onCriada={carregar} setToast={setToast} />
+
       <Card style={{ overflow: "hidden", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 22px", borderBottom: `1px solid ${T.line}` }}>
           <div>
@@ -395,6 +397,75 @@ function MeuDia({ setToast }) {
   );
 }
 
+/* Item 4 da automação: notas emitidas NA MÃO pro mesmo tomador+serviço em
+   meses seguidos viram sugestão de mensalidade automática — converte
+   trabalho manual repetido em zero-clique sem a secretária ter que lembrar
+   de configurar sozinha (app.repo.sugestoes_de_mensalidade). */
+function CartaoSugestoesMensalidade({ sugestoes, onCriada, setToast }) {
+  if (!sugestoes || sugestoes.length === 0) return null;
+  return (
+    <Card style={{ padding: "18px 22px", marginBottom: 16, border: `1.5px solid ${T.green}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+        <Repeat size={17} color={T.green} />
+        <div style={{ fontFamily: T.fontDisplay, fontSize: 18.5, fontWeight: 600 }}>Isso poderia ser automático</div>
+      </div>
+      <div style={{ color: T.inkSoft, fontSize: 14.5, marginBottom: 8 }}>
+        Emitidas na mão, sempre pro mesmo tomador e serviço, em meses seguidos — dá pra virar mensalidade zero-clique.
+      </div>
+      {sugestoes.map((s) => (
+        <SugestaoMensalidadeLinha
+          key={`${s.prestador_id}-${s.tomador_id}-${s.modelo_id}`}
+          sugestao={s} onCriada={onCriada} setToast={setToast}
+        />
+      ))}
+    </Card>
+  );
+}
+
+function SugestaoMensalidadeLinha({ sugestao: s, onCriada, setToast }) {
+  const [diaDoMes, setDiaDoMes] = useState(String(Math.min(28, new Date().getDate())));
+  const [criando, setCriando] = useState(false);
+  const [dispensada, setDispensada] = useState(false);
+
+  if (dispensada) return null;
+
+  const confirmar = async () => {
+    setCriando(true);
+    try {
+      await api.criarRecorrencia(s.prestador_id, {
+        tomador_id: s.tomador_id, modelo_id: s.modelo_id, valor: s.valor_sugerido,
+        dia_do_mes: Number(diaDoMes), ativo: true,
+      });
+      setToast(`✓ Mensalidade automática criada pra ${s.tomador_nome}`);
+      onCriada();
+    } catch (e) {
+      setToast(`Erro: ${e.message}`);
+    } finally {
+      setCriando(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 0", borderTop: `1px solid ${T.line}`, flexWrap: "wrap" }}>
+      <Dot cor={s.prestador_cor} />
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ fontWeight: 600, fontSize: 15.5 }}>{s.tomador_nome} · {s.modelo_descricao}</div>
+        <div style={{ color: T.inkSoft, fontSize: 13.5 }}>
+          {s.prestador_nome} · {BRL(s.valor_sugerido)} · {s.meses_seguidos} meses seguidos na mão
+        </div>
+      </div>
+      <span style={{ fontSize: 13.5, color: T.inkSoft }}>Dia do mês</span>
+      <input
+        type="number" min="1" max="28" value={diaDoMes}
+        onChange={(e) => setDiaDoMes(e.target.value)}
+        style={{ ...inputStyle, width: 56, padding: "7px 8px", fontSize: 14.5, textAlign: "center" }}
+      />
+      <Btn small primary disabled={criando} onClick={confirmar}>{criando ? "Criando…" : "Virar mensalidade"}</Btn>
+      <Btn small onClick={() => setDispensada(true)}>Agora não</Btn>
+    </div>
+  );
+}
+
 const Stat = ({ icon, n, label, cor }) => (
   <Card style={{ padding: "16px 18px" }}>
     <div style={{ color: cor, marginBottom: 8 }}>{icon}</div>
@@ -415,6 +486,7 @@ function EmitirNota({ prestador, setToast }) {
   const [emitindo, setEmitindo] = useState(false);
   const [retencoes, setRetencoes] = useState(RETENCOES_VAZIAS);
   const [mostrarRetencoes, setMostrarRetencoes] = useState(false);
+  const [alertaValor, setAlertaValor] = useState(null);
 
   useEffect(() => {
     if (!prestador) return;
@@ -422,6 +494,21 @@ function EmitirNota({ prestador, setToast }) {
     api.listarModelos(prestador.id).then(setModelos);
     setTomadorId(""); setModeloId(""); setValor("");
   }, [prestador?.id]);
+
+  // Item 3 da automação: avisa (nunca bloqueia) se o valor fugir muito do
+  // que esse tomador+serviço costuma pagar — pega erro de digitação antes
+  // de gastar uma tentativa de emissão real. Debounce curto pra não bater
+  // no backend a cada tecla digitada.
+  useEffect(() => {
+    setAlertaValor(null);
+    if (!prestador || !tomadorId || !modeloId || !valor) return;
+    const id = setTimeout(() => {
+      api.alertaValor(prestador.id, tomadorId, modeloId, valor)
+        .then((r) => setAlertaValor(r.alerta))
+        .catch(() => {}); // checagem best-effort -- nunca atrapalha a emissao
+    }, 400);
+    return () => clearTimeout(id);
+  }, [prestador?.id, tomadorId, modeloId, valor]);
 
   const escolherTomador = (id) => {
     setTomadorId(id);
@@ -481,6 +568,17 @@ function EmitirNota({ prestador, setToast }) {
               value={valor} onChange={setValor}
             />
           </Field>
+
+          {alertaValor && (
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "12px 14px", borderRadius: 10, background: T.amberGhost, color: T.amber, fontSize: 14, marginBottom: 16 }}>
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>
+                As últimas {alertaValor.quantidade_notas} nota(s) desse tomador pra esse serviço ficaram em torno de{" "}
+                <b>R$ {alertaValor.media_historica}</b> — esse valor está bem diferente ({alertaValor.percentual_diferenca}%).
+                Confira antes de emitir — pode estar certo mesmo assim (reajuste, serviço extra).
+              </span>
+            </div>
+          )}
 
           {tomadorId && (
             <Field label="Retenção na fonte">
@@ -1443,6 +1541,96 @@ function Historico({ prestador, setToast }) {
   );
 }
 
+/* Navegador de pastas visual (docs/spec-mvp.md §5b, "Escolher pasta…" já
+   existe no desktop via QFileDialog nativo — o navegador não abre o
+   seletor do SO, então isto lista o sistema de arquivos LOCAL através do
+   backend, que roda na mesma máquina nesta demo). Clica pra entrar na
+   pasta, ".." pra subir, "Usar esta pasta" confirma sem precisar digitar
+   caminho nenhum. */
+const itemPastaStyle = {
+  display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+  padding: "11px 16px", border: "none", borderBottom: `1px solid ${T.line}`, background: "transparent",
+  cursor: "pointer", fontSize: 15, color: T.ink, fontFamily: "inherit",
+};
+
+function SeletorPastaModal({ inicial, onClose, onEscolher, setToast }) {
+  const [caminho, setCaminho] = useState(inicial || "");
+  const [pai, setPai] = useState(null);
+  const [pastas, setPastas] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [novaPastaAberta, setNovaPastaAberta] = useState(false);
+  const [nomeNovaPasta, setNomeNovaPasta] = useState("");
+
+  const navegarPara = (destino) => {
+    setCarregando(true);
+    api.listarPastas(destino)
+      .then((r) => { setCaminho(r.caminho); setPai(r.pai); setPastas(r.pastas); })
+      .catch((e) => setToast(`Erro: ${e.message}`))
+      .finally(() => setCarregando(false));
+  };
+
+  useEffect(() => { navegarPara(inicial); }, []);
+
+  const criarPastaAqui = async () => {
+    const nome = nomeNovaPasta.trim();
+    if (!nome) return;
+    try {
+      const r = await api.criarPasta(caminho, nome);
+      setNovaPastaAberta(false);
+      setNomeNovaPasta("");
+      navegarPara(r.caminho);
+    } catch (e) {
+      setToast(`Erro: ${e.message}`);
+    }
+  };
+
+  return (
+    <Modal title="Escolher pasta" onClose={onClose} width={520}>
+      <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: T.inkSoft, marginBottom: 4 }}>Pasta atual</div>
+      <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 16, wordBreak: "break-all" }}>{caminho || "…"}</div>
+
+      <div style={{ border: `1.5px solid ${T.line}`, borderRadius: 10, maxHeight: 280, overflowY: "auto", marginBottom: 16 }}>
+        {pai !== null && (
+          <button onClick={() => navegarPara(pai)} style={itemPastaStyle}><ArrowUp size={17} /> ..</button>
+        )}
+        {carregando && <div style={{ padding: 16, color: T.inkSoft, fontSize: 14.5 }}>Carregando…</div>}
+        {!carregando && pastas.length === 0 && pai === null && (
+          <div style={{ padding: 16, color: T.inkSoft, fontSize: 14.5 }}>Nenhuma subpasta aqui.</div>
+        )}
+        {!carregando && pastas.map((p) => (
+          <button key={p.caminho} onClick={() => navegarPara(p.caminho)} style={itemPastaStyle}>
+            <Folder size={17} /> {p.nome}
+          </button>
+        ))}
+      </div>
+
+      {novaPastaAberta ? (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <input
+            autoFocus style={inputStyle} placeholder="Nome da nova pasta" value={nomeNovaPasta}
+            onChange={(e) => setNomeNovaPasta(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && criarPastaAqui()}
+          />
+          <Btn small onClick={criarPastaAqui}>Criar</Btn>
+          <Btn small onClick={() => { setNovaPastaAberta(false); setNomeNovaPasta(""); }}>Cancelar</Btn>
+        </div>
+      ) : (
+        <button
+          onClick={() => setNovaPastaAberta(true)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "none", background: "transparent", color: T.green, fontWeight: 600, fontSize: 14.5, cursor: "pointer", padding: 0, marginBottom: 16 }}
+        >
+          <FolderPlus size={16} /> Nova pasta aqui
+        </button>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn primary onClick={() => onEscolher(caminho)}>Usar esta pasta</Btn>
+      </div>
+    </Modal>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Tela: Configurações                                                 */
 /* ------------------------------------------------------------------ */
@@ -1453,6 +1641,7 @@ function Config({ setToast }) {
   const [smtpSenha, setSmtpSenha] = useState("");
   const [senhaJaConfigurada, setSenhaJaConfigurada] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [modalPastaAberto, setModalPastaAberto] = useState(false);
 
   useEffect(() => {
     api.obterConfig().then((c) => {
@@ -1484,10 +1673,23 @@ function Config({ setToast }) {
       <div style={{ display: "grid", gap: 16, maxWidth: 640 }}>
         <Card style={{ padding: 24 }}>
           <Field label="Pasta onde as notas são salvas">
-            <input style={inputStyle} value={pastaBase} onChange={(e) => setPastaBase(e.target.value)} />
+            <div style={{ display: "flex", gap: 10 }}>
+              <input style={{ ...inputStyle, flex: 1 }} value={pastaBase} onChange={(e) => setPastaBase(e.target.value)} />
+              <Btn small onClick={() => setModalPastaAberto(true)} style={{ flexShrink: 0, whiteSpace: "nowrap" }}>
+                <FolderOpen size={16} /> Escolher pasta…
+              </Btn>
+            </div>
           </Field>
           <p style={{ fontSize: 14.5, color: T.inkSoft, margin: 0 }}>💡 Aponte para uma pasta do OneDrive/Google Drive e ganhe backup automático na nuvem.</p>
         </Card>
+        {modalPastaAberto && (
+          <SeletorPastaModal
+            inicial={pastaBase}
+            setToast={setToast}
+            onClose={() => setModalPastaAberto(false)}
+            onEscolher={(caminhoEscolhido) => { setPastaBase(caminhoEscolhido); setModalPastaAberto(false); }}
+          />
+        )}
         <Card style={{ padding: 24 }}>
           <Field label="E-mail que envia as notas (SMTP)">
             <input style={inputStyle} placeholder="smtp.gmail.com" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
