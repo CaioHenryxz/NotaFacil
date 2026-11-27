@@ -1,4 +1,4 @@
-# Emissor NFS-e — guia completo (para quem nunca programou)
+# NotaFácil — emissor de NFS-e para Windows
 
 Este guia explica, passo a passo, como instalar e usar o Emissor NFS-e. Não
 é preciso saber programar. Sempre que aparecer o nome de um botão ou de uma
